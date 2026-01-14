@@ -1,0 +1,52 @@
+load("//eval:defs.bzl", "eval_run", "eval_suite", "eval_matrix")
+
+# Individual evaluation runs
+
+# Test with nop agent (for infrastructure testing)
+eval_run(
+    name = "hello_world_nop",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:nop",
+    tags = ["nop", "test-infra"],
+)
+
+# Test with Claude Code (Sonnet)
+eval_run(
+    name = "hello_world_claude",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:claude_code",
+    tags = ["claude", "sonnet"],
+)
+
+# Test with Claude Code (Opus)
+eval_run(
+    name = "hello_world_opus",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:claude_code_opus",
+    tags = ["claude", "opus"],
+)
+
+# Test suite grouping
+eval_suite(
+    name = "hello_world_all",
+    tests = [
+        ":hello_world_nop",
+        ":hello_world_claude",
+        ":hello_world_opus",
+    ],
+)
+
+# Example matrix evaluation (commented out until more tasks exist)
+eval_matrix(
+    name = "full_eval",
+    tasks = [
+        "//examples/tasks/hello_world",
+    ],
+    agents = [
+        "//examples/agents:claude_code",
+    ],
+    models = [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+    ],
+)

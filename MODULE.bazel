@@ -1,0 +1,9 @@
+"""Bazel module for rules_eval - AI agent evaluation framework."""
+
+module(
+    name = "rules_eval",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "rules_python", version = "0.31.0")
+bazel_dep(name = "bazel_skylib", version = "1.5.0")

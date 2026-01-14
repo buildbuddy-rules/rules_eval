@@ -1,0 +1,21 @@
+load("//eval:defs.bzl", "claude_code_agent", "nop_agent")
+
+# No-operation agent for testing infrastructure
+nop_agent(
+    name = "nop",
+    visibility = ["//visibility:public"],
+)
+
+# Claude Code agent
+claude_code_agent(
+    name = "claude_code",
+    default_model = "claude-sonnet-4-20250514",
+    visibility = ["//visibility:public"],
+)
+
+# Claude Code with Opus model
+claude_code_agent(
+    name = "claude_code_opus",
+    default_model = "claude-opus-4-20250514",
+    visibility = ["//visibility:public"],
+)

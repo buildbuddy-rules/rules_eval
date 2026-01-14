@@ -1,0 +1,52 @@
+# Platform definitions for evaluation execution
+
+# Custom constraint for network access (needed for API calls)
+constraint_setting(
+    name = "network_access",
+    visibility = ["//visibility:public"],
+)
+
+constraint_value(
+    name = "requires_network",
+    constraint_setting = ":network_access",
+    visibility = ["//visibility:public"],
+)
+
+# Default evaluation platform (Linux x86_64 with network)
+platform(
+    name = "eval_linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        ":requires_network",
+    ],
+    exec_properties = {
+        # RBE properties - users should override with their own values
+        "OSFamily": "Linux",
+        # Allow network access for API calls
+        "dockerNetwork": "standard",
+    },
+    visibility = ["//visibility:public"],
+)
+
+# macOS evaluation platform
+platform(
+    name = "eval_macos_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+        ":requires_network",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# macOS x86_64 platform
+platform(
+    name = "eval_macos_x86_64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+        ":requires_network",
+    ],
+    visibility = ["//visibility:public"],
+)

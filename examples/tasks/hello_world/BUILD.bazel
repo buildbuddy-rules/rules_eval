@@ -1,0 +1,13 @@
+load("//eval:defs.bzl", "eval_task")
+
+eval_task(
+    name = "hello_world",
+    instruction = "instruction.md",
+    tests = glob(["tests/**"]),
+    agent_timeout_secs = 60,
+    verifier_timeout_secs = 30,
+    difficulty = "easy",
+    category = "file-io",
+    task_tags = ["trivial", "hello-world"],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,14 @@
+# Bazel
+bazel-*
+MODULE.bazel.lock
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

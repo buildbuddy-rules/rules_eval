@@ -1,0 +1,17 @@
+# Common settings for rules_eval
+
+# Enable bzlmod
+common --enable_bzlmod
+
+# RBE configuration (users override with their own remote executor)
+build:rbe --remote_timeout=3600
+build:rbe --jobs=200
+
+# Evaluation configuration
+build:eval --config=rbe
+build:eval --action_env=ANTHROPIC_API_KEY
+build:eval --action_env=OPENAI_API_KEY
+
+# Test output settings
+test --test_output=errors
+test --test_summary=detailed
