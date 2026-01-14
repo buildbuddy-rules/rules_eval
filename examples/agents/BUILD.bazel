@@ -1,8 +1,14 @@
-load("//eval:defs.bzl", "claude_code_agent", "nop_agent")
+load("//eval:defs.bzl", "claude_code_agent", "nop_agent", "oracle_agent")
 
 # No-operation agent for testing infrastructure
 nop_agent(
     name = "nop",
+    visibility = ["//visibility:public"],
+)
+
+# Oracle agent - applies known solutions (for testing tasks)
+oracle_agent(
+    name = "oracle",
     visibility = ["//visibility:public"],
 )
 

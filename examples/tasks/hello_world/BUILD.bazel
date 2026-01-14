@@ -4,6 +4,7 @@ eval_task(
     name = "hello_world",
     instruction = "instruction.md",
     tests = glob(["tests/**"]),
+    solution = glob(["solution/**"]),
     agent_timeout_secs = 60,
     verifier_timeout_secs = 30,
     difficulty = "easy",

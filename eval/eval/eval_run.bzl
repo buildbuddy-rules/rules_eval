@@ -34,6 +34,12 @@ def _eval_run_impl(ctx):
     inputs.append(agent_info.runner)
     inputs.extend(agent_info.runfiles.files.to_list())
 
+    # Only include solution files for oracle agent
+    solution_files = []
+    if agent_info.name == "oracle":
+        solution_files = task_info.solution_files.to_list()
+        inputs.extend(solution_files)
+
     # Create an action for each run
     result_jsons = []
     trajectory_files = []
@@ -82,6 +88,9 @@ trap "rm -rf $WORKDIR $OUTPUT_DIR" EXIT
 # Copy test files
 {copy_test_files}
 
+# Copy solution files (only present for oracle agent)
+{copy_solution_files}
+
 # Create output directories
 mkdir -p "$OUTPUT_DIR/agent"
 mkdir -p "$OUTPUT_DIR/verifier"
@@ -90,6 +99,9 @@ mkdir -p "$OUTPUT_DIR/verifier"
 AGENT_ARGS="--instruction $INSTRUCTION --workdir $WORKDIR --output $OUTPUT_DIR/agent --timeout $AGENT_TIMEOUT"
 if [ -n "$MODEL" ]; then
     AGENT_ARGS="$AGENT_ARGS --model $MODEL"
+fi
+if [ -d "$OUTPUT_DIR/solution" ]; then
+    AGENT_ARGS="$AGENT_ARGS --solution-dir $OUTPUT_DIR/solution"
 fi
 
 AGENT_EXIT_CODE=0
@@ -201,6 +213,7 @@ EOF
                 run_index = run_idx,
                 copy_env_files = _generate_copy_commands(task_info.environment_files.to_list(), "$WORKDIR"),
                 copy_test_files = _generate_copy_commands(task_info.test_files.to_list(), "$OUTPUT_DIR/tests"),
+                copy_solution_files = _generate_copy_commands(solution_files, "$OUTPUT_DIR/solution"),
             ),
             mnemonic = "EvalRun",
             progress_message = "Running eval: %s with %s (run %d/%d)" % (task_info.name, agent_info.name, run_idx, run_count),

@@ -38,6 +38,7 @@ load("//eval/eval:eval_suite.bzl", _eval_suite = "eval_suite")
 # Built-in agents
 load("//eval/agent/builtin:nop.bzl", _nop_agent = "nop_agent")
 load("//eval/agent/builtin:claude_code.bzl", _claude_code_agent = "claude_code_agent")
+load("//eval/agent/builtin:oracle.bzl", _oracle_agent = "oracle_agent")
 
 # Re-export rules
 eval_task = _eval_task
@@ -51,6 +52,7 @@ eval_suite = _eval_suite
 # Re-export built-in agents
 nop_agent = _nop_agent
 claude_code_agent = _claude_code_agent
+oracle_agent = _oracle_agent
 
 # Re-export providers
 TaskInfo = _TaskInfo

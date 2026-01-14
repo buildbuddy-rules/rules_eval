@@ -9,6 +9,13 @@ eval_run(
     agent = "//examples/agents:nop",
 )
 
+# Test with oracle agent (verifies solution works)
+eval_run(
+    name = "hello_world_oracle",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:oracle",
+)
+
 # Test with multiple runs (demonstrates caching)
 eval_run(
     name = "hello_world_nop_3x",
@@ -35,6 +42,7 @@ eval_run(
 eval_suite(
     name = "hello_world_all",
     runs = [
+        ":hello_world_oracle",
         ":hello_world_nop",
         ":hello_world_claude",
         ":hello_world_opus",
