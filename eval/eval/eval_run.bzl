@@ -1,11 +1,11 @@
-"""eval_run rule - test target that runs an agent on a task."""
+"""eval_run rule - build action that runs an agent on a task."""
 
 load("//eval/task:providers.bzl", "TaskInfo")
 load("//eval/agent:providers.bzl", "AgentInfo")
 load(":providers.bzl", "EvalResultInfo")
 
-def _run_eval_test_impl(ctx):
-    """Implementation of run_eval_test rule."""
+def _eval_run_impl(ctx):
+    """Implementation of eval_run rule - executes eval as a build action."""
 
     task_info = ctx.attr.task[TaskInfo]
     agent_info = ctx.attr.agent[AgentInfo]
@@ -13,54 +13,41 @@ def _run_eval_test_impl(ctx):
     # Determine the model to use
     model = ctx.attr.model if ctx.attr.model else agent_info.default_model
 
-    # Create the test runner script
-    runner_script = ctx.actions.declare_file(ctx.label.name + "_runner.sh")
+    # Declare output files
+    result_json = ctx.actions.declare_file(ctx.label.name + "_result.json")
+    runner = ctx.actions.declare_file(ctx.label.name + "_runner.sh")
 
-    # Collect all input files for the test
-    task_files = []
+    # Collect all input files
+    inputs = []
     if task_info.instruction:
-        task_files.append(task_info.instruction)
+        inputs.append(task_info.instruction)
     if task_info.config:
-        task_files.append(task_info.config)
+        inputs.append(task_info.config)
+    inputs.extend(task_info.environment_files.to_list())
+    inputs.extend(task_info.test_files.to_list())
 
-    # Build file lists for the runner
-    env_files_list = task_info.environment_files.to_list()
-    test_files_list = task_info.test_files.to_list()
+    # Add agent runner and its runfiles
+    inputs.append(agent_info.runner)
+    inputs.extend(agent_info.runfiles.files.to_list())
 
-    # Create environment files manifest
-    env_manifest = ctx.actions.declare_file(ctx.label.name + "_env_manifest.txt")
-    ctx.actions.write(
-        output = env_manifest,
-        content = "\n".join([f.short_path for f in env_files_list]),
-    )
-
-    # Create test files manifest
-    test_manifest = ctx.actions.declare_file(ctx.label.name + "_test_manifest.txt")
-    ctx.actions.write(
-        output = test_manifest,
-        content = "\n".join([f.short_path for f in test_files_list]),
-    )
-
-    # Get the eval_runner path
-    eval_runner = ctx.executable._eval_runner
-    agent_runner = agent_info.runner
-
-    # Create the test wrapper script
-    # Note: Timeout is handled by Bazel's test framework
-    script_content = """#!/bin/bash
+    # Build the command that runs the eval
+    ctx.actions.run_shell(
+        inputs = inputs,
+        outputs = [result_json],
+        command = """
 set -euo pipefail
 
-# Get script directory for finding files
-RUNFILES_DIR="${{RUNFILES_DIR:-$0.runfiles}}"
-cd "$RUNFILES_DIR/_main" 2>/dev/null || cd "$RUNFILES_DIR" 2>/dev/null || true
-
-# Configuration
 TASK_NAME="{task_name}"
 INSTRUCTION="{instruction_path}"
-ENV_MANIFEST="{env_manifest_path}"
-TEST_MANIFEST="{test_manifest_path}"
 AGENT_RUNNER="{agent_runner_path}"
 MODEL="{model}"
+AGENT_NAME="{agent_name}"
+RESULT_JSON_REL="{result_json_path}"
+RESULT_JSON="$PWD/$RESULT_JSON_REL"
+AGENT_TIMEOUT="{agent_timeout}"
+
+# Create output parent directory
+mkdir -p "$(dirname "$RESULT_JSON")"
 
 # Create working directories
 WORKDIR=$(mktemp -d)
@@ -68,33 +55,17 @@ OUTPUT_DIR=$(mktemp -d)
 trap "rm -rf $WORKDIR $OUTPUT_DIR" EXIT
 
 # Copy environment files to workdir
-if [ -f "$ENV_MANIFEST" ]; then
-    while IFS= read -r file; do
-        if [ -n "$file" ] && [ -f "$file" ]; then
-            dir=$(dirname "$file")
-            mkdir -p "$WORKDIR/$dir"
-            cp "$file" "$WORKDIR/$file"
-        fi
-    done < "$ENV_MANIFEST"
-fi
+{copy_env_files}
 
-# Copy test files to output dir for verification
-mkdir -p "$OUTPUT_DIR/tests"
-if [ -f "$TEST_MANIFEST" ]; then
-    while IFS= read -r file; do
-        if [ -n "$file" ] && [ -f "$file" ]; then
-            cp "$file" "$OUTPUT_DIR/tests/"
-        fi
-    done < "$TEST_MANIFEST"
-fi
+# Copy test files
+{copy_test_files}
 
 # Create output directories
 mkdir -p "$OUTPUT_DIR/agent"
 mkdir -p "$OUTPUT_DIR/verifier"
 
 # Run the agent
-echo "Running agent: $TASK_NAME"
-AGENT_ARGS="--instruction $INSTRUCTION --workdir $WORKDIR --output $OUTPUT_DIR/agent --timeout {agent_timeout}"
+AGENT_ARGS="--instruction $INSTRUCTION --workdir $WORKDIR --output $OUTPUT_DIR/agent --timeout $AGENT_TIMEOUT"
 if [ -n "$MODEL" ]; then
     AGENT_ARGS="$AGENT_ARGS --model $MODEL"
 fi
@@ -102,7 +73,6 @@ fi
 "$AGENT_RUNNER" $AGENT_ARGS || true
 
 # Run verification
-echo "Running verification..."
 cd "$WORKDIR"
 REWARD=0
 
@@ -121,68 +91,133 @@ elif [ -f "$WORKDIR/reward.json" ]; then
     REWARD=$(cat "$WORKDIR/reward.json" | grep -o '"reward"[[:space:]]*:[[:space:]]*[0-9.]*' | grep -o '[0-9.]*$' || echo "0")
 fi
 
-# Write result
-echo '{{"task": "{task_name}", "agent": "{agent_name}", "model": "{model}", "reward": '"$REWARD"'}}' > "$OUTPUT_DIR/result.json"
-
 # Determine pass/fail
 if [ "$REWARD" = "1" ] || [ "$REWARD" = "1.0" ]; then
-    echo "PASSED: reward=$REWARD"
-    exit 0
+    PASSED=true
 else
-    echo "FAILED: reward=$REWARD"
-    exit 1
+    PASSED=false
 fi
+
+# Write result JSON (output path is set up by Bazel sandbox)
+cat > "$RESULT_JSON" << EOF
+{{
+  "task": "$TASK_NAME",
+  "agent": "$AGENT_NAME",
+  "model": "$MODEL",
+  "reward": $REWARD,
+  "passed": $PASSED
+}}
+EOF
 """.format(
-        task_name = task_info.name,
-        instruction_path = task_info.instruction.short_path if task_info.instruction else "",
-        env_manifest_path = env_manifest.short_path,
-        test_manifest_path = test_manifest.short_path,
-        agent_runner_path = agent_runner.short_path,
-        agent_timeout = task_info.timeout_secs,
-        model = model,
-        agent_name = agent_info.name,
+            task_name = task_info.name,
+            instruction_path = task_info.instruction.path if task_info.instruction else "",
+            agent_runner_path = agent_info.runner.path,
+            model = model,
+            agent_name = agent_info.name,
+            result_json_path = result_json.path,
+            agent_timeout = task_info.timeout_secs,
+            copy_env_files = _generate_copy_commands(task_info.environment_files.to_list(), "$WORKDIR"),
+            copy_test_files = _generate_copy_commands(task_info.test_files.to_list(), "$OUTPUT_DIR/tests"),
+        ),
+        mnemonic = "EvalRun",
+        progress_message = "Running eval: %s with %s" % (task_info.name, agent_info.name),
+        execution_requirements = {
+            "requires-network": "1",
+            "no-cache": "1",
+            "no-remote": "1",
+        },
     )
 
+    # Create the runner script that displays the result
+    runner_content = '''#!/bin/bash
+# Get runfiles directory
+RUNFILES_DIR="${{RUNFILES_DIR:-$0.runfiles}}"
+cd "$RUNFILES_DIR/_main" 2>/dev/null || cd "$RUNFILES_DIR" 2>/dev/null || true
+
+RESULT_FILE="{result_path}"
+
+# Colors
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+CYAN='\\033[0;36m'
+NC='\\033[0m'
+BOLD='\\033[1m'
+
+if [ ! -f "$RESULT_FILE" ]; then
+    echo -e "${{RED}}Error: Result file not found${{NC}}"
+    exit 1
+fi
+
+# Parse JSON
+TASK=$(grep -o '"task"[[:space:]]*:[[:space:]]*"[^"]*"' "$RESULT_FILE" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+AGENT=$(grep -o '"agent"[[:space:]]*:[[:space:]]*"[^"]*"' "$RESULT_FILE" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$RESULT_FILE" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+PASS=$(grep -o '"passed"[[:space:]]*:[[:space:]]*[a-z]*' "$RESULT_FILE" | sed 's/.*:[[:space:]]*//')
+REWARD=$(grep -o '"reward"[[:space:]]*:[[:space:]]*[0-9.]*' "$RESULT_FILE" | sed 's/.*:[[:space:]]*//')
+
+echo ""
+echo -e "${{BOLD}}Eval Result${{NC}}"
+echo "==========="
+echo ""
+echo -e "  ${{CYAN}}Task:${{NC}}   $TASK"
+echo -e "  ${{CYAN}}Agent:${{NC}}  $AGENT"
+if [ -n "$MODEL" ]; then
+    echo -e "  ${{CYAN}}Model:${{NC}}  $MODEL"
+fi
+echo ""
+
+if [ "$PASS" = "true" ]; then
+    echo -e "  ${{GREEN}}${{BOLD}}PASSED${{NC}}  (reward: $REWARD)"
+else
+    echo -e "  ${{RED}}${{BOLD}}FAILED${{NC}}  (reward: $REWARD)"
+fi
+echo ""
+
+# Exit with appropriate code
+if [ "$PASS" = "true" ]; then
+    exit 0
+else
+    exit 1
+fi
+'''.format(result_path = result_json.short_path)
+
     ctx.actions.write(
-        output = runner_script,
-        content = script_content,
+        output = runner,
+        content = runner_content,
         is_executable = True,
     )
 
-    # Collect all runfiles
-    runfiles_files = (
-        task_files +
-        env_files_list +
-        test_files_list +
-        [env_manifest, test_manifest]
-    )
-
-    runfiles = ctx.runfiles(files = runfiles_files)
-    runfiles = runfiles.merge(agent_info.runfiles)
-    runfiles = runfiles.merge(ctx.attr._eval_runner[DefaultInfo].default_runfiles)
+    # Collect runfiles
+    runfiles = ctx.runfiles(files = [result_json])
 
     return [
         DefaultInfo(
-            executable = runner_script,
+            executable = runner,
+            files = depset([result_json]),
             runfiles = runfiles,
         ),
         EvalResultInfo(
             task_label = ctx.attr.task.label,
             agent_label = ctx.attr.agent.label,
             model = model,
-            result_json = None,  # Created at runtime
+            result_json = result_json,
         ),
-        testing.TestEnvironment({
-            "EVAL_TASK": task_info.name,
-            "EVAL_AGENT": agent_info.name,
-            "EVAL_MODEL": model,
-        }),
     ]
 
-_run_eval_test = rule(
-    implementation = _run_eval_test_impl,
-    doc = "Runs an agent on a task and verifies the result. This is a test target.",
-    test = True,
+def _generate_copy_commands(files, dest_dir):
+    """Generate shell commands to copy files to a destination directory."""
+    if not files:
+        return "mkdir -p " + dest_dir
+
+    commands = ["mkdir -p " + dest_dir]
+    for f in files:
+        commands.append('cp "{src}" "{dest}/"'.format(src = f.path, dest = dest_dir))
+    return "\n".join(commands)
+
+_eval_run = rule(
+    implementation = _eval_run_impl,
+    doc = "Runs an agent on a task as a build action, outputting result JSON.",
+    executable = True,
     attrs = {
         "task": attr.label(
             doc = "The eval_task to run.",
@@ -198,42 +233,34 @@ _run_eval_test = rule(
             doc = "Model to use (overrides agent default).",
             default = "",
         ),
-        "_eval_runner": attr.label(
-            doc = "The evaluation runner script.",
-            default = "//eval/private:eval_runner",
-            executable = True,
-            cfg = "target",
-        ),
     },
 )
 
-def eval_run(name, task, agent, model = "", tags = [], **kwargs):
-    """Creates a test target that runs an agent on a task.
+def eval_run(name, task, agent, model = "", **kwargs):
+    """Runs an agent on a task as a build action.
 
-    This is the main macro for creating evaluation test targets.
-    Each eval_run target can be executed with `bazel test`.
+    When built with `bazel build`, this target executes the agent on the task
+    and outputs a result JSON file. When run with `bazel run`, it displays
+    a formatted summary of the eval result.
 
     Args:
-        name: Name of the test target.
+        name: Name of the target.
         task: Label of the eval_task to run.
         agent: Label of the eval_agent to use.
         model: Optional model override (defaults to agent's default model).
-        tags: Tags to apply to the test target.
-        **kwargs: Additional arguments passed to the underlying test rule.
+        **kwargs: Additional arguments passed to the underlying rule.
 
     Example:
-        eval_run(
-            name = "hello_world_claude",
-            task = "//tasks:hello_world",
-            agent = "//agents:claude_code",
-            model = "claude-opus-4-20250514",
-        )
+        # Build the eval (runs agent and generates result)
+        bazel build //evals:my_eval
+
+        # Run and display formatted result
+        bazel run //evals:my_eval
     """
-    _run_eval_test(
+    _eval_run(
         name = name,
         task = task,
         agent = agent,
         model = model,
-        tags = tags + ["eval"],
         **kwargs
     )

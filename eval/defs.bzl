@@ -32,7 +32,8 @@ load("//eval/eval:eval_run.bzl", _eval_run = "eval_run")
 load("//eval/eval:providers.bzl", _EvalResultInfo = "EvalResultInfo")
 
 # Macros
-load("//eval:macros.bzl", _eval_matrix = "eval_matrix", _eval_suite = "eval_suite")
+load("//eval:macros.bzl", _eval_matrix = "eval_matrix")
+load("//eval/eval:eval_suite.bzl", _eval_suite = "eval_suite")
 
 # Built-in agents
 load("//eval/agent/builtin:nop.bzl", _nop_agent = "nop_agent")

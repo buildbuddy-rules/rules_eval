@@ -7,7 +7,6 @@ eval_run(
     name = "hello_world_nop",
     task = "//examples/tasks/hello_world",
     agent = "//examples/agents:nop",
-    tags = ["nop", "test-infra"],
 )
 
 # Test with Claude Code (Sonnet)
@@ -15,7 +14,6 @@ eval_run(
     name = "hello_world_claude",
     task = "//examples/tasks/hello_world",
     agent = "//examples/agents:claude_code",
-    tags = ["claude", "sonnet"],
 )
 
 # Test with Claude Code (Opus)
@@ -23,20 +21,19 @@ eval_run(
     name = "hello_world_opus",
     task = "//examples/tasks/hello_world",
     agent = "//examples/agents:claude_code_opus",
-    tags = ["claude", "opus"],
 )
 
-# Test suite grouping
+# Suite grouping - run with `bazel run :hello_world_all`
 eval_suite(
     name = "hello_world_all",
-    tests = [
+    runs = [
         ":hello_world_nop",
         ":hello_world_claude",
         ":hello_world_opus",
     ],
 )
 
-# Example matrix evaluation (commented out until more tasks exist)
+# Matrix evaluation - run with `bazel run :full_eval`
 eval_matrix(
     name = "full_eval",
     tasks = [
