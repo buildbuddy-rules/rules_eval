@@ -35,14 +35,16 @@ RED='\\033[0;31m'
 GREEN='\\033[0;32m'
 YELLOW='\\033[1;33m'
 BLUE='\\033[0;34m'
+DIM='\\033[2m'
 NC='\\033[0m' # No Color
 BOLD='\\033[1m'
 
-# Create temp file for aggregation
+# Create temp files
 TMPFILE=$(mktemp)
-trap "rm -f $TMPFILE" EXIT
+FAILED_FILE=$(mktemp)
+trap "rm -f $TMPFILE $FAILED_FILE $TMPFILE.totals" EXIT
 
-# First pass: collect and aggregate results
+# First pass: collect results and track failures
 while IFS= read -r result_file; do
     if [ -n "$result_file" ] && [ -f "$result_file" ]; then
         TASK=$(grep -o '"task"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
@@ -50,10 +52,14 @@ while IFS= read -r result_file; do
         MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
         PASS=$(grep -o '"passed"[[:space:]]*:[[:space:]]*[a-z]*' "$result_file" | sed 's/.*:[[:space:]]*//')
         REWARD=$(grep -o '"reward"[[:space:]]*:[[:space:]]*[0-9.]*' "$result_file" | sed 's/.*:[[:space:]]*//')
+        RUN_NUM=$(grep -o '"run"[[:space:]]*:[[:space:]]*[0-9]*' "$result_file" | sed 's/.*:[[:space:]]*//')
 
         PASS_NUM=0
         if [ "$PASS" = "true" ]; then
             PASS_NUM=1
+        else
+            # Track failed runs for detail section
+            echo "$result_file" >> "$FAILED_FILE"
         fi
 
         echo "$TASK|$AGENT|$MODEL|$PASS_NUM|$REWARD" >> "$TMPFILE"
@@ -138,7 +144,6 @@ echo "============"
 # Read totals (handle case where no results)
 if [ -f "$TMPFILE.totals" ]; then
     read TOTAL_RUNS TOTAL_PASSED TOTAL_EVALS < "$TMPFILE.totals"
-    rm -f "$TMPFILE.totals"
 else
     TOTAL_RUNS=0
     TOTAL_PASSED=0
@@ -157,6 +162,69 @@ TOTAL_FAILED=$((TOTAL_RUNS - TOTAL_PASSED))
 # Summary with color
 echo -e "${{BOLD}}Summary:${{NC}} $TOTAL_EVALS evals, $TOTAL_RUNS runs, ${{GREEN}}$TOTAL_PASSED passed${{NC}}, ${{RED}}$TOTAL_FAILED failed${{NC}} ($PASS_RATE%)"
 echo ""
+
+# Show failed run details
+if [ -s "$FAILED_FILE" ]; then
+    echo -e "${{BOLD}}Failed Runs:${{NC}}"
+    echo ""
+
+    while IFS= read -r result_file; do
+        if [ -f "$result_file" ]; then
+            TASK=$(grep -o '"task"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+            AGENT=$(grep -o '"agent"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+            MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+            RUN_NUM=$(grep -o '"run"[[:space:]]*:[[:space:]]*[0-9]*' "$result_file" | sed 's/.*:[[:space:]]*//')
+            TRAJECTORY=$(grep -o '"trajectory"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
+
+            # Get agent and verifier output using python for proper JSON parsing
+            # Strip ANSI escape codes for cleaner display
+            AGENT_OUT=$(python3 -c "
+import json, re
+def strip_ansi(s):
+    return re.sub(r'\\x1b\\[[0-9;]*m', '', s)
+with open('$result_file') as f:
+    data = json.load(f)
+    v = strip_ansi(data.get('agent_output', ''))
+    if v:
+        # Show last line only
+        lines = [l for l in v.strip().split('\\n') if l.strip()]
+        if lines:
+            print(lines[-1][:200])
+" 2>/dev/null || true)
+
+            VERIFIER_OUT=$(python3 -c "
+import json, re
+def strip_ansi(s):
+    return re.sub(r'\\x1b\\[[0-9;]*m', '', s)
+with open('$result_file') as f:
+    data = json.load(f)
+    v = strip_ansi(data.get('verifier_output', ''))
+    if v:
+        print(v[:200])
+" 2>/dev/null || true)
+
+            MODEL_SHORT=$(echo "$MODEL" | sed 's/claude-//' | cut -c1-20)
+            if [ -n "$MODEL_SHORT" ]; then
+                echo -e "  ${{RED}}$TASK${{NC}} / $AGENT / $MODEL_SHORT (run $RUN_NUM)"
+            else
+                echo -e "  ${{RED}}$TASK${{NC}} / $AGENT (run $RUN_NUM)"
+            fi
+
+            if [ -n "$AGENT_OUT" ]; then
+                echo -e "    ${{DIM}}Agent: $AGENT_OUT${{NC}}"
+            fi
+
+            if [ -n "$VERIFIER_OUT" ]; then
+                echo -e "    ${{DIM}}Verifier: $VERIFIER_OUT${{NC}}"
+            fi
+
+            if [ -n "$TRAJECTORY" ]; then
+                echo -e "    ${{DIM}}Trajectory: bazel-bin/$TRAJECTORY${{NC}}"
+            fi
+            echo ""
+        fi
+    done < "$FAILED_FILE"
+fi
 
 # Exit with failure if any run failed
 if [ "$TOTAL_FAILED" -gt 0 ]; then
