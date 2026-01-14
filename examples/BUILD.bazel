@@ -9,6 +9,14 @@ eval_run(
     agent = "//examples/agents:nop",
 )
 
+# Test with multiple runs (demonstrates caching)
+eval_run(
+    name = "hello_world_nop_3x",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:nop",
+    run_count = 3,
+)
+
 # Test with Claude Code (Sonnet)
 eval_run(
     name = "hello_world_claude",

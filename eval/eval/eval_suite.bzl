@@ -9,7 +9,7 @@ def _eval_suite_impl(ctx):
     result_files = []
     for run in ctx.attr.runs:
         if EvalResultInfo in run:
-            result_files.append(run[EvalResultInfo].result_json)
+            result_files.extend(run[EvalResultInfo].result_jsons)
 
     # Create a manifest of result files
     manifest = ctx.actions.declare_file(ctx.label.name + "_manifest.txt")
@@ -38,60 +38,128 @@ BLUE='\\033[0;34m'
 NC='\\033[0m' # No Color
 BOLD='\\033[1m'
 
-echo ""
-echo -e "${{BOLD}}Eval Results${{NC}}"
-echo "============"
-echo ""
+# Create temp file for aggregation
+TMPFILE=$(mktemp)
+trap "rm -f $TMPFILE" EXIT
 
-# Print header
-printf "%-30s %-20s %-30s %s\\n" "TASK" "AGENT" "MODEL" "RESULT"
-printf "%-30s %-20s %-30s %s\\n" "----" "-----" "-----" "------"
-
-TOTAL=0
-PASSED=0
-FAILED=0
-
-# Read each result file and print
+# First pass: collect and aggregate results
 while IFS= read -r result_file; do
     if [ -n "$result_file" ] && [ -f "$result_file" ]; then
-        TOTAL=$((TOTAL + 1))
-
-        # Parse JSON (simple grep-based parsing)
         TASK=$(grep -o '"task"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
         AGENT=$(grep -o '"agent"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
         MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$result_file" | sed 's/.*"\\([^"]*\\)"$/\\1/')
         PASS=$(grep -o '"passed"[[:space:]]*:[[:space:]]*[a-z]*' "$result_file" | sed 's/.*:[[:space:]]*//')
         REWARD=$(grep -o '"reward"[[:space:]]*:[[:space:]]*[0-9.]*' "$result_file" | sed 's/.*:[[:space:]]*//')
 
-        # Truncate model name for display
-        MODEL_SHORT=$(echo "$MODEL" | sed 's/claude-//' | cut -c1-25)
-
+        PASS_NUM=0
         if [ "$PASS" = "true" ]; then
-            PASSED=$((PASSED + 1))
-            printf "%-30s %-20s %-30s ${{GREEN}}PASS${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$REWARD"
-        else
-            FAILED=$((FAILED + 1))
-            printf "%-30s %-20s %-30s ${{RED}}FAIL${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$REWARD"
+            PASS_NUM=1
         fi
+
+        echo "$TASK|$AGENT|$MODEL|$PASS_NUM|$REWARD" >> "$TMPFILE"
     fi
 done < "$MANIFEST"
 
 echo ""
+echo -e "${{BOLD}}Eval Results${{NC}}"
+echo "============"
+echo ""
+
+# Print header
+printf "%-25s %-15s %-25s %s\\n" "TASK" "AGENT" "MODEL" "RESULT"
+printf "%-25s %-15s %-25s %s\\n" "----" "-----" "-----" "------"
+
+TOTAL_RUNS=0
+TOTAL_PASSED=0
+TOTAL_EVALS=0
+
+# Process aggregated results (group by task|agent|model)
+sort "$TMPFILE" | while IFS='|' read -r TASK AGENT MODEL PASS_NUM REWARD; do
+    echo "$TASK|$AGENT|$MODEL|$PASS_NUM|$REWARD"
+done | awk -F'|' '
+BEGIN {{
+    prev_key = ""
+    runs = 0
+    passed = 0
+    total_reward = 0
+}}
+{{
+    key = $1 "|" $2 "|" $3
+    if (key != prev_key && prev_key != "") {{
+        print prev_key "|" passed "|" runs "|" total_reward
+        runs = 0
+        passed = 0
+        total_reward = 0
+    }}
+    prev_key = key
+    runs++
+    passed += $4
+    total_reward += $5
+}}
+END {{
+    if (prev_key != "") {{
+        print prev_key "|" passed "|" runs "|" total_reward
+    }}
+}}
+' | while IFS='|' read -r TASK AGENT MODEL PASSED RUNS REWARD; do
+    TOTAL_RUNS=$((TOTAL_RUNS + RUNS))
+    TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
+    TOTAL_EVALS=$((TOTAL_EVALS + 1))
+
+    # Truncate model name for display
+    MODEL_SHORT=$(echo "$MODEL" | sed 's/claude-//' | cut -c1-22)
+
+    # Calculate average reward
+    AVG_REWARD=$(echo "scale=2; $REWARD / $RUNS" | bc)
+
+    if [ "$PASSED" -eq "$RUNS" ]; then
+        if [ "$RUNS" -eq 1 ]; then
+            printf "%-25s %-15s %-25s ${{GREEN}}PASS${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$AVG_REWARD"
+        else
+            printf "%-25s %-15s %-25s ${{GREEN}}%d/%d${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$PASSED" "$RUNS" "$AVG_REWARD"
+        fi
+    elif [ "$PASSED" -eq 0 ]; then
+        if [ "$RUNS" -eq 1 ]; then
+            printf "%-25s %-15s %-25s ${{RED}}FAIL${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$AVG_REWARD"
+        else
+            printf "%-25s %-15s %-25s ${{RED}}%d/%d${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$PASSED" "$RUNS" "$AVG_REWARD"
+        fi
+    else
+        printf "%-25s %-15s %-25s ${{YELLOW}}%d/%d${{NC}} (%.2f)\\n" "$TASK" "$AGENT" "$MODEL_SHORT" "$PASSED" "$RUNS" "$AVG_REWARD"
+    fi
+
+    # Write totals to file for summary
+    echo "$TOTAL_RUNS $TOTAL_PASSED $TOTAL_EVALS" > "$TMPFILE.totals"
+done
+
+echo ""
 echo "============"
 
+# Read totals (handle case where no results)
+if [ -f "$TMPFILE.totals" ]; then
+    read TOTAL_RUNS TOTAL_PASSED TOTAL_EVALS < "$TMPFILE.totals"
+    rm -f "$TMPFILE.totals"
+else
+    TOTAL_RUNS=0
+    TOTAL_PASSED=0
+    TOTAL_EVALS=0
+fi
+
 # Calculate pass rate
-if [ $TOTAL -gt 0 ]; then
-    PASS_RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
+if [ "$TOTAL_RUNS" -gt 0 ]; then
+    PASS_RATE=$(echo "scale=1; $TOTAL_PASSED * 100 / $TOTAL_RUNS" | bc)
 else
     PASS_RATE="0.0"
 fi
 
+TOTAL_FAILED=$((TOTAL_RUNS - TOTAL_PASSED))
+
 # Summary with color
-echo -e "${{BOLD}}Summary:${{NC}} $TOTAL evals, ${{GREEN}}$PASSED passed${{NC}}, ${{RED}}$FAILED failed${{NC}} ($PASS_RATE%)"
+echo -e "${{BOLD}}Summary:${{NC}} $TOTAL_EVALS evals, $TOTAL_RUNS runs, ${{GREEN}}$TOTAL_PASSED passed${{NC}}, ${{RED}}$TOTAL_FAILED failed${{NC}} ($PASS_RATE%)"
 echo ""
 
-# Exit with failure if any eval failed
-if [ $FAILED -gt 0 ]; then
+# Exit with failure if any run failed
+if [ "$TOTAL_FAILED" -gt 0 ]; then
     exit 1
 fi
 '''.format(

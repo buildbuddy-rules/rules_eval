@@ -1,0 +1,11 @@
+# Command-line flags for rules_eval
+
+load("@bazel_skylib//rules:common_settings.bzl", "int_flag")
+
+# Flag to override run_count for all eval_run targets
+# Usage: bazel run //examples:my_eval --//flag:run_count=5
+int_flag(
+    name = "run_count",
+    build_setting_default = 0,  # 0 means "use the value from BUILD file"
+    visibility = ["//visibility:public"],
+)
