@@ -38,6 +38,27 @@ eval_run(
     agent = "//examples/agents:claude_code_opus",
 )
 
+# Test with Codex
+eval_run(
+    name = "hello_world_codex",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:codex",
+)
+
+# Test with echo agent (example binary_agent)
+eval_run(
+    name = "hello_world_echo",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:echo",
+)
+
+# Test with nanocode agent
+eval_run(
+    name = "hello_world_nanocode",
+    task = "//examples/tasks/hello_world",
+    agent = "//examples/agents:nanocode",
+)
+
 # Suite grouping - run with `bazel run :hello_world_all`
 eval_suite(
     name = "hello_world_all",
@@ -46,6 +67,9 @@ eval_suite(
         ":hello_world_nop",
         ":hello_world_claude",
         ":hello_world_opus",
+        ":hello_world_codex",
+        ":hello_world_echo",
+        ":hello_world_nanocode",
     ],
 )
 

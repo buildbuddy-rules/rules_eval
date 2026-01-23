@@ -90,10 +90,14 @@ with open('$result_file') as f:
     data = json.load(f)
     v = strip_ansi(data.get('agent_output', ''))
     if v:
-        # Show last line only
+        # Skip status messages, show last 3 meaningful lines
         lines = [l for l in v.strip().split('\\n') if l.strip()]
-        if lines:
-            print(lines[-1][:200])
+        skip_prefixes = ('Running ', 'Claude Code agent', 'Codex agent', '===', 'ERROR:', 'Model:', 'Timeout:', 'Workdir:')
+        meaningful = [l for l in lines if not any(l.strip().startswith(p) for p in skip_prefixes)]
+        if not meaningful:
+            meaningful = lines
+        for line in meaningful[-3:]:
+            print(line[:200])
 " 2>/dev/null || true)
 
             VERIFIER_OUT=$(python3 -c "
@@ -115,7 +119,9 @@ with open('$result_file') as f:
             fi
 
             if [ -n "$AGENT_OUT" ]; then
-                echo -e "    ${{DIM}}Agent: $AGENT_OUT${{NC}}"
+                while IFS= read -r line; do
+                    echo -e "    ${{DIM}}Agent: $line${{NC}}"
+                done <<< "$AGENT_OUT"
             fi
 
             if [ -n "$VERIFIER_OUT" ]; then

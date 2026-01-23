@@ -1,4 +1,6 @@
-load("//eval:defs.bzl", "claude_code_agent", "nop_agent", "oracle_agent")
+load("@rules_go//go:def.bzl", "go_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("//eval:defs.bzl", "binary_agent", "claude_code_agent", "codex_agent", "nop_agent", "oracle_agent")
 
 # No-operation agent for testing infrastructure
 nop_agent(
@@ -23,5 +25,44 @@ claude_code_agent(
 claude_code_agent(
     name = "claude_code_opus",
     default_model = "claude-opus-4-20250514",
+    visibility = ["//visibility:public"],
+)
+
+# Codex agent
+codex_agent(
+    name = "codex",
+    visibility = ["//visibility:public"],
+)
+
+# Example: binary_agent wrapping a custom executable
+# This demonstrates how to use any binary (e.g., go_binary) as an agent
+go_binary(
+    name = "echo_agent_bin",
+    srcs = ["echo_agent.go"],
+)
+
+binary_agent(
+    name = "echo",
+    binary = ":echo_agent_bin",
+    agent_name = "echo",
+    # Default invocation: {binary} --model {model} --prompt {instruction}
+    # Custom example: invocation = "{binary} {instruction} -m {model}",
+    visibility = ["//visibility:public"],
+)
+
+# Nanocode agent - minimal Claude Code alternative
+# https://github.com/1rgs/nanocode
+py_binary(
+    name = "nanocode_agent_bin",
+    srcs = ["nanocode_agent.py"],
+    main = "nanocode_agent.py",
+)
+
+binary_agent(
+    name = "nanocode",
+    binary = ":nanocode_agent_bin",
+    agent_name = "nanocode",
+    default_model = "claude-sonnet-4-20250514",
+    env = {"ANTHROPIC_API_KEY": ""},
     visibility = ["//visibility:public"],
 )

@@ -1,30 +1,30 @@
-"""Claude Code agent for evaluations."""
+"""Codex agent for evaluations."""
 
 load("//eval/agent:agent.bzl", "eval_agent")
-load("@tools_claude//claude:defs.bzl", "CLAUDE_TOOLCHAIN_TYPE")
+load("@tools_codex//codex:defs.bzl", "CODEX_TOOLCHAIN_TYPE")
 
-def _claude_code_runner_impl(ctx):
-    """Creates a Claude Code agent runner script."""
+def _codex_runner_impl(ctx):
+    """Creates a Codex agent runner script."""
 
-    # Get the claude binary from the toolchain
-    toolchain = ctx.toolchains[CLAUDE_TOOLCHAIN_TYPE]
-    claude_binary = toolchain.claude_info.binary
+    # Get the codex binary from the toolchain
+    toolchain = ctx.toolchains[CODEX_TOOLCHAIN_TYPE]
+    codex_binary = toolchain.codex_info.binary
 
     runner = ctx.actions.declare_file(ctx.label.name + ".sh")
 
     script_content = """#!/bin/bash
-# Claude Code agent runner
-# Runs Claude Code CLI on the given instruction
+# Codex agent runner
+# Runs OpenAI Codex CLI on the given instruction
 
 set -euo pipefail
 
 # Resolve to absolute path before any cd
-CLAUDE_BIN="$PWD/{claude_binary_path}"
+CODEX_BIN="$PWD/{codex_binary_path}"
 INSTRUCTION=""
 WORKDIR=""
 OUTPUT_DIR=""
 TIMEOUT=300
-MODEL="claude-sonnet-4-20250514"
+MODEL=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,14 +47,21 @@ mkdir -p "$OUTPUT_DIR"
 # Read instruction content
 TASK_INSTRUCTION=$(cat "$INSTRUCTION")
 
-# Run Claude Code
+# Run Codex
 cd "$WORKDIR"
 
-# Set HOME to workdir so Claude can write its config files in the sandbox
+# Set HOME to workdir so Codex can write its config files in the sandbox
 export HOME="$WORKDIR"
+export TMPDIR=/tmp
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH
 
-echo "Running Claude Code..."
-echo "  Model: $MODEL"
+# Pass OPENAI_API_KEY as CODEX_API_KEY (codex exec requires CODEX_API_KEY)
+export CODEX_API_KEY="${{CODEX_API_KEY:-$OPENAI_API_KEY}}"
+
+echo "Running Codex..."
+if [ -n "$MODEL" ]; then
+    echo "  Model: $MODEL"
+fi
 echo "  Timeout: ${{TIMEOUT}}s"
 echo "  Workdir: $WORKDIR"
 echo ""
@@ -69,22 +76,20 @@ fi
 
 # Run with timeout if available, tee output so we can see it
 if [ -n "$TIMEOUT_CMD" ]; then
-    "$TIMEOUT_CMD" "$TIMEOUT" "$CLAUDE_BIN" \\
-        --print \\
-        --output-format json \\
-        --model "$MODEL" \\
-        --dangerously-skip-permissions \\
+    "$TIMEOUT_CMD" "$TIMEOUT" "$CODEX_BIN" exec \\
+        --dangerously-bypass-approvals-and-sandbox \\
+        --skip-git-repo-check \\
+        ${{MODEL:+--model "$MODEL"}} \\
         "$TASK_INSTRUCTION" \\
         2>&1 | tee "$OUTPUT_DIR/output.log" \\
         || true
     EXIT_CODE=${{PIPESTATUS[0]}}
 else
     # No timeout command available, run without timeout
-    "$CLAUDE_BIN" \\
-        --print \\
-        --output-format json \\
-        --model "$MODEL" \\
-        --dangerously-skip-permissions \\
+    "$CODEX_BIN" exec \\
+        --dangerously-bypass-approvals-and-sandbox \\
+        --skip-git-repo-check \\
+        ${{MODEL:+--model "$MODEL"}} \\
         "$TASK_INSTRUCTION" \\
         2>&1 | tee "$OUTPUT_DIR/output.log" \\
         || true
@@ -111,9 +116,9 @@ elif [ "$EXIT_CODE" -ne 0 ]; then
 fi
 
 echo ""
-echo "Claude Code agent completed"
+echo "Codex agent completed"
 exit 0
-""".format(claude_binary_path = claude_binary.path)
+""".format(codex_binary_path = codex_binary.path)
 
     ctx.actions.write(
         output = runner,
@@ -123,20 +128,20 @@ exit 0
 
     return [DefaultInfo(
         executable = runner,
-        runfiles = ctx.runfiles(files = [claude_binary]),
+        runfiles = ctx.runfiles(files = [codex_binary]),
     )]
 
-_claude_code_runner = rule(
-    implementation = _claude_code_runner_impl,
+_codex_runner = rule(
+    implementation = _codex_runner_impl,
     executable = True,
-    toolchains = [CLAUDE_TOOLCHAIN_TYPE],
+    toolchains = [CODEX_TOOLCHAIN_TYPE],
 )
 
-def claude_code_agent(name, default_model = "claude-sonnet-4-20250514", **kwargs):
-    """Creates a Claude Code agent.
+def codex_agent(name, default_model = "", **kwargs):
+    """Creates a Codex agent.
 
-    Runs the Claude Code CLI to complete evaluation tasks. Requires
-    the ANTHROPIC_API_KEY environment variable to be set.
+    Runs the OpenAI Codex CLI to complete evaluation tasks. Requires
+    the OPENAI_API_KEY environment variable to be set.
 
     Args:
         name: Name of the agent target.
@@ -145,7 +150,7 @@ def claude_code_agent(name, default_model = "claude-sonnet-4-20250514", **kwargs
     """
     runner_name = name + "_runner"
 
-    _claude_code_runner(
+    _codex_runner(
         name = runner_name,
         visibility = ["//visibility:private"],
     )
@@ -153,10 +158,10 @@ def claude_code_agent(name, default_model = "claude-sonnet-4-20250514", **kwargs
     eval_agent(
         name = name,
         runner = ":" + runner_name,
-        agent_name = "claude-code",
+        agent_name = "codex",
         version = "1.0.0",
         default_model = default_model,
         supports_model_override = True,
-        env = {"ANTHROPIC_API_KEY": ""},
+        env = {"OPENAI_API_KEY": ""},
         **kwargs
     )

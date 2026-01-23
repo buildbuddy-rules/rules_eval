@@ -100,7 +100,7 @@ AGENT_ARGS="--instruction $INSTRUCTION --workdir $WORKDIR --output $OUTPUT_DIR/a
 if [ -n "$MODEL" ]; then
     AGENT_ARGS="$AGENT_ARGS --model $MODEL"
 fi
-if [ -d "$OUTPUT_DIR/solution" ]; then
+if [ -d "$OUTPUT_DIR/solution" ] && [ "$AGENT_NAME" = "oracle" ]; then
     AGENT_ARGS="$AGENT_ARGS --solution-dir $OUTPUT_DIR/solution"
 fi
 
@@ -138,10 +138,10 @@ fi
 # Capture agent output (tail)
 AGENT_OUTPUT=""
 if [ -f "$OUTPUT_DIR/agent/stdout.txt" ]; then
-    AGENT_OUTPUT=$(tail -10 "$OUTPUT_DIR/agent/stdout.txt" 2>/dev/null || true)
+    AGENT_OUTPUT=$(tail -50 "$OUTPUT_DIR/agent/stdout.txt" 2>/dev/null || true)
 fi
 if [ -f "$OUTPUT_DIR/agent/stderr.txt" ] && [ -s "$OUTPUT_DIR/agent/stderr.txt" ]; then
-    AGENT_STDERR=$(tail -5 "$OUTPUT_DIR/agent/stderr.txt" 2>/dev/null || true)
+    AGENT_STDERR=$(tail -20 "$OUTPUT_DIR/agent/stderr.txt" 2>/dev/null || true)
     if [ -n "$AGENT_STDERR" ]; then
         AGENT_OUTPUT="$AGENT_OUTPUT
 [stderr] $AGENT_STDERR"
@@ -217,10 +217,9 @@ EOF
             ),
             mnemonic = "EvalRun",
             progress_message = "Running eval: %s with %s (run %d/%d)" % (task_info.name, agent_info.name, run_idx, run_count),
+            use_default_shell_env = True,
             execution_requirements = {
                 "requires-network": "1",
-                "no-cache": "1",
-                "no-remote": "1",
             },
         )
 
@@ -312,10 +311,15 @@ with open('$RESULT_FILE') as f:
     agent_out = strip_ansi(data.get('agent_output', '')).strip()
     verifier_out = strip_ansi(data.get('verifier_output', '')).strip()
     if agent_out:
-        # Show last non-empty line only
+        # Skip status messages, show last 3 meaningful lines
         lines = [l for l in agent_out.split('\\n') if l.strip()]
-        if lines:
-            print(f'         \\033[2mAgent: {{lines[-1][:200]}}\\033[0m')
+        # Filter out common status messages
+        skip_prefixes = ('Running ', 'Claude Code agent', 'Codex agent', '===', 'ERROR:', 'Model:', 'Timeout:', 'Workdir:')
+        meaningful = [l for l in lines if not any(l.strip().startswith(p) for p in skip_prefixes)]
+        if not meaningful:
+            meaningful = lines  # fallback to all lines if filtering removes everything
+        for line in meaningful[-3:]:
+            print(f'         \\033[2mAgent: {{line[:200]}}\\033[0m')
     if verifier_out:
         lines = [l for l in verifier_out.split('\\n') if l.strip()]
         if lines:
