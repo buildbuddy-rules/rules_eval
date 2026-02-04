@@ -1,7 +1,7 @@
 """Codex agent for evaluations."""
 
 load("//eval/agent:agent.bzl", "eval_agent")
-load("@tools_codex//codex:defs.bzl", "CODEX_TOOLCHAIN_TYPE")
+load("@rules_codex//codex:defs.bzl", "CODEX_TOOLCHAIN_TYPE")
 
 def _codex_runner_impl(ctx):
     """Creates a Codex agent runner script."""

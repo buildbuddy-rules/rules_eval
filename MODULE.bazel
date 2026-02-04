@@ -10,15 +10,15 @@ bazel_dep(name = "rules_go", version = "0.59.0")
 bazel_dep(name = "bazel_skylib", version = "1.5.0")
 
 # Agent toolchains
-bazel_dep(name = "tools_claude", version = "0.1.0")
+bazel_dep(name = "rules_claude", version = "0.1.0")
 git_override(
-    module_name = "tools_claude",
-    remote = "https://github.com/buildbuddy-rules/tools_claude.git",
-    commit = "775f240df9ebac5e9e4c4c55debca873a6cd0ab2",
+    module_name = "rules_claude",
+    remote = "https://github.com/buildbuddy-io/rules_claude.git",
+    commit = "1c9e3bf914070d790c29220487c0a6a776ca29d5",
 )
-bazel_dep(name = "tools_codex", version = "0.1.0")
+bazel_dep(name = "rules_codex", version = "0.1.0")
 git_override(
-    module_name = "tools_codex",
-    remote = "https://github.com/buildbuddy-rules/tools_codex.git",
-    commit = "0dec5645a2e14d80bbd6a7a2e8211a8c6923e023",
+    module_name = "rules_codex",
+    remote = "https://github.com/buildbuddy-io/rules_codex.git",
+    commit = "6311d41e26464de559061bd056fb04b6f29eada0",
 )

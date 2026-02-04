@@ -1,7 +1,7 @@
 """Claude Code agent for evaluations."""
 
 load("//eval/agent:agent.bzl", "eval_agent")
-load("@tools_claude//claude:defs.bzl", "CLAUDE_TOOLCHAIN_TYPE")
+load("@rules_claude//claude:defs.bzl", "CLAUDE_TOOLCHAIN_TYPE")
 
 def _claude_code_runner_impl(ctx):
     """Creates a Claude Code agent runner script."""
