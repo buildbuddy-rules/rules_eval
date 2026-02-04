@@ -1,4 +1,2 @@
-common --registry=https://registry.buildbuddy.dev
-
 # Import user-specific settings (API keys, etc.)
 try-import %workspace%/user.bazelrc
