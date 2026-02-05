@@ -63,6 +63,7 @@ eval_task = rule(
         ),
         "environment": attr.label_list(
             doc = "Files that make up the task environment (initial state).",
+            allow_empty = True,
             allow_files = True,
             default = [],
         ),
