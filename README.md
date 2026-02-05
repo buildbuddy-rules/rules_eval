@@ -24,7 +24,7 @@ bazel_dep(name = "rules_eval", version = "0.0.0")
 git_override(
     module_name = "rules_eval",
     remote = "https://github.com/anthropics/rules_eval.git",
-    commit = "<commit_sha>",  # Replace with the desired commit
+    commit = "4375459acd5f568a1be48164e94ec375d66b791c",
 )
 ```
 
